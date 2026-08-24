@@ -18,6 +18,7 @@ import static com.jankominek.disenchantment.Disenchantment.nms;
  * Handles both regular item enchantments and stored enchantments on books.
  */
 public class EnchantmentUtils {
+
     /**
      * Adds an enchantment directly to an item, bypassing level restrictions.
      *
@@ -30,8 +31,8 @@ public class EnchantmentUtils {
     }
 
     /**
-     * Adds a stored enchantment to an item. Uses {@link EnchantmentStorageMeta} for books,
-     * or regular enchant meta for other items.
+     * Adds a stored enchantment to an enchanted book.
+     * For normal items this method falls back to a regular enchantment.
      *
      * @param item        the item to enchant
      * @param enchantment the enchantment to store
@@ -40,10 +41,13 @@ public class EnchantmentUtils {
     public static void addStoredEnchantment(ItemStack item, Enchantment enchantment, Integer level) {
         ItemMeta meta = item.getItemMeta();
 
-        if (meta instanceof EnchantmentStorageMeta storage)
+        if (meta == null) {
+            return;
+        }
+
+        if (meta instanceof EnchantmentStorageMeta storage) {
             storage.addStoredEnchant(enchantment, level, true);
-        else {
-            assert meta != null;
+        } else {
             meta.addEnchant(enchantment, level, true);
         }
 
@@ -53,50 +57,68 @@ public class EnchantmentUtils {
     /**
      * Creates a clone of the item with the specified enchantments removed.
      *
+     * <p>This method removes normal enchantments from regular items and
+     * stored enchantments from enchanted books.</p>
+     *
      * @param firstItem    the item to clone and modify
      * @param enchantments the enchantments to remove
      * @return a new item stack with the enchantments removed
      */
-    public static ItemStack removeEnchantments(ItemStack firstItem, Map<Enchantment, Integer> enchantments) {
+    public static ItemStack removeEnchantments(
+            ItemStack firstItem,
+            Map<Enchantment, Integer> enchantments
+    ) {
         ItemStack item = firstItem.clone();
 
-        for (Map.Entry<Enchantment, Integer> entry : enchantments.entrySet()) {
-            Enchantment enchantment = entry.getKey();
+        if (enchantments == null || enchantments.isEmpty()) {
+            return item;
+        }
 
-            EnchantmentUtils.removeStoredEnchantment(item, enchantment);
+        for (Enchantment enchantment : enchantments.keySet()) {
+            removeEnchantment(item, enchantment);
         }
 
         return item;
     }
 
     /**
-     * Removes an enchantment directly from an item.
+     * Removes a normal enchantment directly from an item.
+     *
+     * <p>For enchanted books, this method removes the stored enchantment instead.</p>
      *
      * @param item        the item to modify
      * @param enchantment the enchantment to remove
      */
     public static void removeEnchantment(ItemStack item, Enchantment enchantment) {
-        item.removeEnchantment(enchantment);
+        if (item == null || enchantment == null) {
+            return;
+        }
+
+        ItemMeta meta = item.getItemMeta();
+
+        if (meta == null) {
+            return;
+        }
+
+        if (meta instanceof EnchantmentStorageMeta storage) {
+            storage.removeStoredEnchant(enchantment);
+        } else {
+            meta.removeEnchant(enchantment);
+        }
+
+        item.setItemMeta(meta);
     }
 
     /**
-     * Removes a stored enchantment from an item. Uses {@link EnchantmentStorageMeta} for books,
-     * or regular enchant meta for other items.
+     * Removes a stored enchantment from an enchanted book.
+     *
+     * <p>For normal items this falls back to removing the regular enchantment.</p>
      *
      * @param item        the item to modify
      * @param enchantment the enchantment to remove
      */
     public static void removeStoredEnchantment(ItemStack item, Enchantment enchantment) {
-        ItemMeta meta = item.getItemMeta();
-
-        if (meta instanceof EnchantmentStorageMeta storage)
-            storage.removeStoredEnchant(enchantment);
-        else {
-            assert meta != null;
-            meta.removeEnchant(enchantment);
-        }
-
-        item.setItemMeta(meta);
+        removeEnchantment(item, enchantment);
     }
 
     /**
@@ -121,10 +143,9 @@ public class EnchantmentUtils {
 
     /**
      * Retrieves all enchantments from an item, supporting both regular and stored enchantments.
-     * Filters out null enchantments and those with level 0 or below.
      *
      * @param item the item to inspect
-     * @return a mutable list of {@link IPluginEnchantment} instances
+     * @return a mutable list of enchantments
      */
     public static List<IPluginEnchantment> getItemEnchantments(ItemStack item) {
         List<IPluginEnchantment> enchantments;
@@ -151,22 +172,25 @@ public class EnchantmentUtils {
     /**
      * Returns all registered enchantments from the server via NMS.
      *
-     * @return a list of all registered {@link Enchantment} instances
+     * @return a list of all registered enchantments
      */
     public static List<Enchantment> getRegisteredEnchantments() {
         return nms.getRegisteredEnchantments();
     }
 
     /**
-     * Wraps a vanilla {@link Enchantment} and level into an {@link IPluginEnchantment} implementation
-     * that supports adding to/removing from items and books.
+     * Wraps a Bukkit enchantment into an IPluginEnchantment implementation.
      *
-     * @param enchantment the enchantment to wrap
+     * @param enchantment the enchantment
      * @param level       the enchantment level
-     * @return a new {@link IPluginEnchantment} adapter
+     * @return an IPluginEnchantment adapter
      */
-    public static IPluginEnchantment remapEnchantment(Enchantment enchantment, int level) {
+    public static IPluginEnchantment remapEnchantment(
+            Enchantment enchantment,
+            int level
+    ) {
         return new IPluginEnchantment() {
+
             @Override
             public String getKey() {
                 return enchantment.getKey().getKey().toLowerCase();
@@ -180,28 +204,42 @@ public class EnchantmentUtils {
             @Override
             public ItemStack addToBook(ItemStack book) {
                 ItemStack item = book.clone();
-                EnchantmentUtils.addStoredEnchantment(item, enchantment, this.getLevel());
+                EnchantmentUtils.addStoredEnchantment(
+                        item,
+                        enchantment,
+                        this.getLevel()
+                );
                 return item;
             }
 
             @Override
             public ItemStack removeFromBook(ItemStack book) {
                 ItemStack item = book.clone();
-                EnchantmentUtils.removeStoredEnchantment(item, enchantment);
+                EnchantmentUtils.removeStoredEnchantment(
+                        item,
+                        enchantment
+                );
                 return item;
             }
 
             @Override
             public ItemStack addToItem(ItemStack item) {
                 ItemStack result = item.clone();
-                EnchantmentUtils.addStoredEnchantment(result, enchantment, this.getLevel());
+                EnchantmentUtils.addEnchantment(
+                        result,
+                        enchantment,
+                        this.getLevel()
+                );
                 return result;
             }
 
             @Override
             public ItemStack removeFromItem(ItemStack item) {
                 ItemStack result = item.clone();
-                EnchantmentUtils.removeStoredEnchantment(result, enchantment);
+                EnchantmentUtils.removeEnchantment(
+                        result,
+                        enchantment
+                );
                 return result;
             }
         };
