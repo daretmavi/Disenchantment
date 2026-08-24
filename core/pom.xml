@@ -2,16 +2,17 @@
 <project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
     <modelVersion>4.0.0</modelVersion>
-
+    
     <artifactId>disenchantment-core</artifactId>
-
+    
     <parent>
         <groupId>com.jankominek</groupId>
         <artifactId>disenchantment-parent</artifactId>
         <version>${revision}</version>
     </parent>
-
+    
     <build>
         <plugins>
             <plugin>
@@ -22,6 +23,7 @@
                     <target>17</target>
                 </configuration>
             </plugin>
+            
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -29,9 +31,10 @@
                 <configuration>
                     <useModulePath>false</useModulePath>
                     <argLine>-XX:+EnableDynamicAgentLoading -Djdk.attach.allowAttachSelf</argLine>
+                    
                     <!-- Exclude provided-scope server jars from test runtime.
-                         MockBukkit 4.x brings Paper 1.21 API which conflicts with
-                         Spigot 1.18 (e.g. Biome was an enum in 1.18, interface in 1.21). -->
+                    MockBukkit 4.x brings Paper 1.21 API which conflicts with
+                    Spigot API used by the core module. -->
                     <classpathDependencyExcludes>
                         <classpathDependencyExclude>org.spigotmc:spigot</classpathDependencyExclude>
                         <classpathDependencyExclude>org.spigotmc:spigot-api</classpathDependencyExclude>
@@ -41,110 +44,130 @@
             </plugin>
         </plugins>
     </build>
-
+    
     <dependencies>
+        
         <dependency>
             <groupId>dev.folia</groupId>
             <artifactId>folia-api</artifactId>
             <version>1.20.1-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
+        
+        <!-- Core only uses the Bukkit/Spigot API.
+        Version-specific NMS/server dependencies belong to the
+        version-specific modules (v1_18_R1, v1_21_R5, etc.). -->
         <dependency>
             <groupId>org.spigotmc</groupId>
-            <artifactId>spigot</artifactId>
-            <version>1.18-R0.1-SNAPSHOT</version>
+            <artifactId>spigot-api</artifactId>
+            <version>1.21.8-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
+        
         <dependency>
             <groupId>com.github.MilkBowl</groupId>
             <artifactId>VaultAPI</artifactId>
             <version>1.7.1</version>
             <scope>provided</scope>
         </dependency>
-
-        <!-- Force adventure 4.20.0 for tests: folia-api brings 4.14.0 (no ComponentDecoder),
-             paper-api (via MockBukkit) needs 4.20.0; explicit direct dep wins mediation. -->
+        
+        <!-- Force Adventure 4.23.0 for tests. -->
         <dependency>
             <groupId>net.kyori</groupId>
             <artifactId>adventure-api</artifactId>
             <version>4.23.0</version>
             <scope>provided</scope>
         </dependency>
+        
         <dependency>
             <groupId>net.kyori</groupId>
             <artifactId>adventure-text-serializer-gson</artifactId>
             <version>4.23.0</version>
             <scope>provided</scope>
         </dependency>
+        
         <dependency>
             <groupId>net.kyori</groupId>
             <artifactId>adventure-text-serializer-legacy</artifactId>
             <version>4.23.0</version>
             <scope>provided</scope>
         </dependency>
+        
         <dependency>
             <groupId>net.kyori</groupId>
             <artifactId>adventure-text-serializer-plain</artifactId>
             <version>4.23.0</version>
             <scope>provided</scope>
         </dependency>
+        
         <dependency>
             <groupId>net.kyori</groupId>
             <artifactId>adventure-text-minimessage</artifactId>
             <version>4.23.0</version>
             <scope>provided</scope>
         </dependency>
-
+        
         <dependency>
             <groupId>me.clip</groupId>
             <artifactId>placeholderapi</artifactId>
             <version>2.12.2</version>
             <scope>provided</scope>
         </dependency>
+        
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.47.1.0</version>
             <scope>compile</scope>
         </dependency>
-
+        
         <!-- Test dependencies -->
+        
         <dependency>
             <groupId>org.mockbukkit.mockbukkit</groupId>
             <artifactId>mockbukkit-v1.21</artifactId>
             <version>4.39.0</version>
             <scope>test</scope>
         </dependency>
+        
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
+        
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
             <version>5.18.0</version>
             <scope>test</scope>
         </dependency>
+        
     </dependencies>
-
+    
     <repositories>
+        
         <repository>
             <id>spigot-repo</id>
             <url>https://hub.spigotmc.org/nexus/content/groups/public/</url>
         </repository>
+        
         <repository>
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
+        
         <repository>
             <id>jitpack.io</id>
             <url>https://jitpack.io</url>
         </repository>
+        
         <repository>
             <id>placeholderapi</id>
             <url>https://repo.helpch.at/releases/</url>
         </repository>
+        
     </repositories>
+    
 </project>

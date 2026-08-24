@@ -64,16 +64,17 @@ public final class AnvilEventGuards {
      * <p>
      * The click handlers deliver the result by calling {@code p.setItemOnCursor(result)}
      * without cancelling the event on the normal-pickup path. Any click that also makes
-     * vanilla move a <em>second</em> copy of the result elsewhere (into the inventory, a
-     * hotbar slot, the off-hand, or the world) yields two books from one operation — an
-     * item-duplication exploit. Rather than enumerate the dangerous click types, this uses a
-     * <strong>whitelist</strong>: only a plain left- or right-click pickup is permitted, so any
-     * present or future non-pickup action (shift-click, number-key swap, off-hand swap,
-     * double-click collect, drops, middle/creative clone, …) is treated as unsafe. A {@code null}
-     * click only occurs under mocked tests; it is treated as safe so it does not block normal
-     * handling there. Callers must {@code setCancelled(true)} and return when this returns
-     * {@code true}, and only after confirming the click is a genuine plugin operation (otherwise
-     * unrelated vanilla anvil result-slot interactions would be blocked).
+     * vanilla move a <em>second</em> copy of the result elsewhere (into the inventory,
+     * a hotbar slot, the off-hand, or the world) yields two books from one operation —
+     * an item-duplication exploit. Rather than enumerate the dangerous click types,
+     * this uses a <strong>whitelist</strong>: only a plain left- or right-click pickup is
+     * permitted, so any present or future non-pickup action (shift-click, number-key
+     * swap, off-hand swap, double-click collect, drops, middle/creative clone, …) is
+     * treated as unsafe. A {@code null} click only occurs under mocked tests; it is
+     * treated as safe so it does not block normal handling there. Callers must
+     * {@code setCancelled(true)} and return when this returns {@code true}, and only
+     * after confirming the click is a genuine plugin operation (otherwise unrelated
+     * vanilla anvil result-slot interactions would be blocked).
      */
     public static boolean isUnsafeResultClick(InventoryClickEvent e) {
         ClickType click = e.getClick();
@@ -98,18 +99,46 @@ public final class AnvilEventGuards {
      */
     @FunctionalInterface
     public interface PluginEnchantmentCollector {
-        List<IPluginEnchantment> collect(ItemStack first, ItemStack second, boolean isPrepare, ISupportedPlugin plugin, World world);
+        List<IPluginEnchantment> collect(
+                ItemStack first,
+                ItemStack second,
+                boolean isPrepare,
+                ISupportedPlugin plugin,
+                World world
+        );
     }
 
     /**
-     * Collects all eligible enchantments for a given anvil slot combination, iterating
-     * over all activated third-party plugins (or falling back to vanilla logic when none
-     * are active). The {@code isPrepare} flag distinguishes PrepareAnvil (true) from
-     * InventoryClick (false) calls.
+     * Collects all eligible enchantments for a given anvil slot combination.
+     *
+     * <p>
+     * Vanilla enchantments are ALWAYS collected, even when one or more
+     * third-party plugin adapters are active.
+     *
+     * <p>
+     * Previously the presence of any activated third-party plugin caused the
+     * vanilla collector to be skipped entirely. This breaks vanilla
+     * enchantments when an adapter such as Vane is active because the plugin
+     * adapter intentionally only returns enchantments belonging to that plugin.
+     *
+     * <p>
+     * The collection therefore works in two stages:
+     *
+     * <ol>
+     *     <li>Collect vanilla/Bukkit enchantments.</li>
+     *     <li>Collect enchantments from every activated third-party adapter.</li>
+     * </ol>
+     *
+     * <p>
+     * Results are deduplicated by {@link IPluginEnchantment#getKey()}.
+     * Third-party plugin enchantments take precedence over the vanilla
+     * representation of the same key. This is important for adapters which
+     * implement custom {@code addToBook()} / removal behaviour.
      *
      * @param firstItem       item in anvil slot 0
      * @param secondItem      item in anvil slot 1 (may be null)
-     * @param isPrepare       {@code true} for PrepareAnvilEvent, {@code false} for InventoryClickEvent
+     * @param isPrepare       {@code true} for PrepareAnvilEvent,
+     *                        {@code false} for InventoryClickEvent
      * @param baseCollector   vanilla/no-plugin collector
      * @param pluginCollector per-plugin collector
      * @param world           the player's current world
@@ -123,29 +152,62 @@ public final class AnvilEventGuards {
             PluginEnchantmentCollector pluginCollector,
             World world) {
 
-        List<ISupportedPlugin> activatedPlugins = SupportedPluginManager.getAllActivatedPlugins();
-        List<IPluginEnchantment> enchantments = new ArrayList<>();
+        List<ISupportedPlugin> activatedPlugins =
+                SupportedPluginManager.getAllActivatedPlugins();
 
-        if (activatedPlugins.isEmpty()) {
-            enchantments.addAll(baseCollector.collect(firstItem, secondItem, isPrepare));
-        } else {
-            for (ISupportedPlugin activatedPlugin : activatedPlugins) {
-                enchantments.addAll(pluginCollector.collect(firstItem, secondItem, isPrepare, activatedPlugin, world));
+        /*
+         * Keep the result keyed by enchantment key.
+         *
+         * First collect vanilla enchantments. This is essential when a plugin
+         * such as Vane is installed: Vane's adapter only recognizes Vane
+         * enchantments and therefore returns an empty list for normal
+         * minecraft:* enchantments.
+         */
+        Map<String, IPluginEnchantment> enchantments = new LinkedHashMap<>();
+
+        // Always collect vanilla/Bukkit enchantments.
+        for (IPluginEnchantment enchantment :
+                baseCollector.collect(firstItem, secondItem, isPrepare)) {
+
+            enchantments.putIfAbsent(
+                    enchantment.getKey(),
+                    enchantment
+            );
+        }
+
+        /*
+         * Now collect enchantments supplied by third-party plugins.
+         *
+         * Plugin adapters take precedence over the vanilla representation
+         * when both return the same key. This allows adapters such as Vane
+         * to retain their custom addToBook/removeFromBook implementation.
+         */
+        for (ISupportedPlugin activatedPlugin : activatedPlugins) {
+
+            for (IPluginEnchantment enchantment :
+                    pluginCollector.collect(
+                            firstItem,
+                            secondItem,
+                            isPrepare,
+                            activatedPlugin,
+                            world
+                    )) {
+
+                enchantments.put(
+                        enchantment.getKey(),
+                        enchantment
+                );
             }
         }
 
-        // Deduplicate by key — first occurrence wins. Prevents double-cost/double-removal
-        // when multiple adapters claim the same enchantment key.
-        Map<String, IPluginEnchantment> seen = new LinkedHashMap<>();
-        for (IPluginEnchantment enc : enchantments) {
-            seen.putIfAbsent(enc.getKey(), enc);
-        }
-        return new ArrayList<>(seen.values());
+        return new ArrayList<>(enchantments.values());
     }
 
     /**
-     * Same as {@link #collectEnchantments(ItemStack, ItemStack, boolean, EnchantmentCollector, PluginEnchantmentCollector, World)}
-     * but honors {@code disenchantment.bypass.material} for {@code p} while collecting.
+     * Same as {@link #collectEnchantments(ItemStack, ItemStack, boolean,
+     * EnchantmentCollector, PluginEnchantmentCollector, World)}
+     * but honors {@code disenchantment.bypass.material} for {@code p}
+     * while collecting.
      */
     public static List<IPluginEnchantment> collectEnchantments(
             ItemStack firstItem,
@@ -156,9 +218,19 @@ public final class AnvilEventGuards {
             World world,
             Player p) {
 
-        EventUtils.setMaterialBypass(PermissionType.BYPASS_MATERIAL.hasPermission(p));
+        EventUtils.setMaterialBypass(
+                PermissionType.BYPASS_MATERIAL.hasPermission(p)
+        );
+
         try {
-            return collectEnchantments(firstItem, secondItem, isPrepare, baseCollector, pluginCollector, world);
+            return collectEnchantments(
+                    firstItem,
+                    secondItem,
+                    isPrepare,
+                    baseCollector,
+                    pluginCollector,
+                    world
+            );
         } finally {
             EventUtils.setMaterialBypass(false);
         }
@@ -168,16 +240,21 @@ public final class AnvilEventGuards {
     // Maintenance guard
 
     /**
-     * Returns {@code true} when maintenance mode is active and the player lacks the bypass
-     * permission. Sends the maintenance message when blocking. Callers are responsible for
-     * exiting the handler (without cancelling — mirrors how the disabled-world/material checks
-     * silently no-op rather than cancel).
+     * Returns {@code true} when maintenance mode is active and the player lacks
+     * the bypass permission. Sends the maintenance message when blocking.
+     * Callers are responsible for exiting the handler (without cancelling —
+     * mirrors how the disabled-world/material checks silently no-op rather than
+     * cancel).
      */
     public static boolean isMaintenanceBlocked(Player p) {
         if (!Disenchantment.maintenanceEnabled) return false;
         if (PermissionType.MAINTENANCE_BYPASS.hasPermission(p)) return false;
 
-        p.sendMessage(I18n.getPrefix() + " " + I18n.Messages.maintenanceActive());
+        p.sendMessage(
+                I18n.getPrefix() + " " +
+                        I18n.Messages.maintenanceActive()
+        );
+
         return true;
     }
 
@@ -185,11 +262,15 @@ public final class AnvilEventGuards {
     // World bypass guard
 
     /**
-     * Returns {@code true} when the player's world is disabled for the given feature AND the
-     * player lacks {@code disenchantment.bypass.world}.
+     * Returns {@code true} when the player's world is disabled for the given
+     * feature AND the player lacks {@code disenchantment.bypass.world}.
      */
-    public static boolean isWorldBlocked(Player p, boolean disabledForWorld) {
+    public static boolean isWorldBlocked(
+            Player p,
+            boolean disabledForWorld) {
+
         if (!disabledForWorld) return false;
+
         return !PermissionType.BYPASS_WORLD.hasPermission(p);
     }
 
@@ -197,9 +278,9 @@ public final class AnvilEventGuards {
     // Cooldown guard
 
     /**
-     * Checks whether the player is currently on cooldown for anvil operations. When on
-     * cooldown, sends the remaining-time message to the player. Callers are responsible
-     * for cancelling the event when this returns {@code true}.
+     * Checks whether the player is currently on cooldown for anvil operations.
+     * When on cooldown, sends the remaining-time message to the player.
+     * Callers are responsible for cancelling the event when this returns true.
      *
      * @param p the player to check
      * @return {@code true} if the player must be blocked from proceeding
@@ -208,12 +289,20 @@ public final class AnvilEventGuards {
         if (!CooldownManager.isOnCooldown(p)) return false;
 
         long remaining = CooldownManager.getRemainingSeconds(p);
-        p.sendMessage(I18n.getPrefix() + " " + I18n.Messages.cooldownActive(String.valueOf(remaining)));
+
+        p.sendMessage(
+                I18n.getPrefix() + " " +
+                        I18n.Messages.cooldownActive(
+                                String.valueOf(remaining)
+                        )
+        );
+
         return true;
     }
 
     /**
-     * Records that the player just completed an anvil operation, starting a new cooldown.
+     * Records that the player just completed an anvil operation,
+     * starting a new cooldown.
      */
     public static void recordCooldownOperation(Player p) {
         CooldownManager.recordOperation(p);
@@ -223,20 +312,23 @@ public final class AnvilEventGuards {
     // XP guard
 
     /**
-     * Returns {@code true} when the player has sufficient XP (or is in creative mode)
-     * to pay {@code repairCost} levels.
+     * Returns {@code true} when the player has sufficient XP (or is in creative
+     * mode) to pay {@code repairCost} levels.
      */
     public static boolean hasEnoughXp(Player p, int repairCost) {
-        return p.getGameMode() == GameMode.CREATIVE || repairCost <= p.getLevel();
+        return p.getGameMode() == GameMode.CREATIVE
+                || repairCost <= p.getLevel();
     }
 
     // ----------------------------------------------------------------------------------------------------
     // Economy guard
 
     /**
-     * Represents the economy configuration for one feature (Disenchantment or Shatterment).
+     * Represents the economy configuration for one feature
+     * (Disenchantment or Shatterment).
      */
     public interface EconomyConfig {
+
         boolean isEnabled();
 
         double getCost();
@@ -244,7 +336,8 @@ public final class AnvilEventGuards {
         boolean isChargeMessageEnabled();
 
         /**
-         * Only relevant for PrepareAnvil (action bar display). Defaults to {@code false}.
+         * Only relevant for PrepareAnvil (action bar display).
+         * Defaults to {@code false}.
          */
         default boolean isShowCostEnabled() {
             return false;
@@ -252,43 +345,69 @@ public final class AnvilEventGuards {
     }
 
     /**
-     * Checks whether the player can afford the economy cost and, if so, withdraws it.
+     * Checks whether the player can afford the economy cost and, if so,
+     * withdraws it.
+     *
      * <p>
-     * Returns {@code EconomyResult.OK} on success.  Returns one of the failure variants
-     * when the operation should be cancelled; the caller is responsible for cancelling
-     * the event and sending any required message.
+     * Returns {@code EconomyResult.OK} on success.
+     * Returns one of the failure variants when the operation should be
+     * cancelled; the caller is responsible for cancelling the event and
+     * sending any required message.
      *
      * @param p      the player
      * @param config economy config for the active feature
      * @return result indicating what action (if any) the caller must take
      */
-    public static EconomyResult processEconomy(Player p, EconomyConfig config) {
-        if (!config.isEnabled() || p.getGameMode() == GameMode.CREATIVE) return EconomyResult.OK;
+    public static EconomyResult processEconomy(
+            Player p,
+            EconomyConfig config) {
 
-        if (!EconomyUtils.isAvailable()) return EconomyResult.NOT_AVAILABLE;
+        if (!config.isEnabled()
+                || p.getGameMode() == GameMode.CREATIVE) {
+            return EconomyResult.OK;
+        }
+
+        if (!EconomyUtils.isAvailable()) {
+            return EconomyResult.NOT_AVAILABLE;
+        }
 
         double cost = config.getCost();
-        if (!EconomyUtils.has(p, cost)) return EconomyResult.INSUFFICIENT_FUNDS;
+
+        if (!EconomyUtils.has(p, cost)) {
+            return EconomyResult.INSUFFICIENT_FUNDS;
+        }
 
         EconomyUtils.withdraw(p, cost);
+
         if (config.isChargeMessageEnabled()) {
-            p.sendMessage(I18n.getPrefix() + " " + I18n.Messages.economyCharged(EconomyUtils.format(cost)));
+            p.sendMessage(
+                    I18n.getPrefix() + " " +
+                            I18n.Messages.economyCharged(
+                                    EconomyUtils.format(cost)
+                            )
+            );
         }
+
         return EconomyResult.OK;
     }
 
     /**
-     * Result codes returned by {@link #processEconomy} and {@link #processEconomyCost}.
+     * Result codes returned by {@link #processEconomy} and
+     * {@link #processEconomyCost}.
      */
     public enum EconomyResult {
+
         /**
-         * Economy check passed and the player was charged (or economy is disabled).
+         * Economy check passed and the player was charged
+         * (or economy is disabled).
          */
         OK,
+
         /**
          * No Vault/economy provider is hooked up.
          */
         NOT_AVAILABLE,
+
         /**
          * Player does not have enough money to cover the cost.
          */
@@ -296,21 +415,40 @@ public final class AnvilEventGuards {
     }
 
     /**
-     * Same as {@link #processEconomy(Player, EconomyConfig)} but charges an explicit
-     * {@code cost} instead of {@link EconomyConfig#getCost()} — used when the effective
-     * cost has been recalculated from per-enchantment economy overrides.
+     * Same as {@link #processEconomy(Player, EconomyConfig)} but charges an
+     * explicit {@code cost} instead of {@link EconomyConfig#getCost()} —
+     * used when the effective cost has been recalculated from per-enchantment
+     * economy overrides.
      */
-    public static EconomyResult processEconomyCost(Player p, EconomyConfig config, double cost) {
-        if (!config.isEnabled() || p.getGameMode() == GameMode.CREATIVE) return EconomyResult.OK;
+    public static EconomyResult processEconomyCost(
+            Player p,
+            EconomyConfig config,
+            double cost) {
 
-        if (!EconomyUtils.isAvailable()) return EconomyResult.NOT_AVAILABLE;
+        if (!config.isEnabled()
+                || p.getGameMode() == GameMode.CREATIVE) {
+            return EconomyResult.OK;
+        }
 
-        if (!EconomyUtils.has(p, cost)) return EconomyResult.INSUFFICIENT_FUNDS;
+        if (!EconomyUtils.isAvailable()) {
+            return EconomyResult.NOT_AVAILABLE;
+        }
+
+        if (!EconomyUtils.has(p, cost)) {
+            return EconomyResult.INSUFFICIENT_FUNDS;
+        }
 
         EconomyUtils.withdraw(p, cost);
+
         if (config.isChargeMessageEnabled()) {
-            p.sendMessage(I18n.getPrefix() + " " + I18n.Messages.economyCharged(EconomyUtils.format(cost)));
+            p.sendMessage(
+                    I18n.getPrefix() + " " +
+                            I18n.Messages.economyCharged(
+                                    EconomyUtils.format(cost)
+                            )
+            );
         }
+
         return EconomyResult.OK;
     }
 
@@ -318,24 +456,43 @@ public final class AnvilEventGuards {
     // Economy action bar (PrepareAnvil)
 
     /**
-     * Sends the economy cost action bar to the player when economy display conditions are met.
+     * Sends the economy cost action bar to the player when economy display
+     * conditions are met.
      */
-    public static void showEconomyActionBar(Player p, EconomyConfig config) {
-        showEconomyActionBarCost(p, config, config.getCost());
+    public static void showEconomyActionBar(
+            Player p,
+            EconomyConfig config) {
+
+        showEconomyActionBarCost(
+                p,
+                config,
+                config.getCost()
+        );
     }
 
     /**
-     * Same as {@link #showEconomyActionBar(Player, EconomyConfig)} but displays an explicit
-     * {@code cost} instead of {@link EconomyConfig#getCost()}.
+     * Same as {@link #showEconomyActionBar(Player, EconomyConfig)} but displays
+     * an explicit {@code cost} instead of {@link EconomyConfig#getCost()}.
      */
-    public static void showEconomyActionBarCost(Player p, EconomyConfig config, double cost) {
+    public static void showEconomyActionBarCost(
+            Player p,
+            EconomyConfig config,
+            double cost) {
+
         if (config.isEnabled()
                 && EconomyUtils.isAvailable()
                 && config.isShowCostEnabled()
                 && p.getGameMode() != GameMode.CREATIVE) {
-            p.sendActionBar(LegacyComponentSerializer.legacySection().deserialize(
-                    I18n.Messages.economyCost(EconomyUtils.format(cost))
-            ));
+
+            p.sendActionBar(
+                    LegacyComponentSerializer
+                            .legacySection()
+                            .deserialize(
+                                    I18n.Messages.economyCost(
+                                            EconomyUtils.format(cost)
+                                    )
+                            )
+            );
         }
     }
 
@@ -348,7 +505,8 @@ public final class AnvilEventGuards {
      *
      * @param e                  the PrepareAnvilEvent
      * @param p                  the viewing player
-     * @param pluginEnchantments enchantments whose cost will be recalculated in the scheduled task
+     * @param pluginEnchantments enchantments whose cost will be recalculated
+     *                           in the scheduled task
      * @param eventType          DISENCHANTMENT or SHATTERMENT
      */
     public static void applyAnvilCostAndSchedule(
@@ -357,58 +515,132 @@ public final class AnvilEventGuards {
             List<IPluginEnchantment> pluginEnchantments,
             AnvilEventType eventType) {
 
-        int anvilCost = AnvilCostUtils.countAnvilCost(pluginEnchantments, eventType, p);
-        applyDisplayedCost(e.getInventory(), e.getView(), p, eventType, anvilCost);
+        int anvilCost =
+                AnvilCostUtils.countAnvilCost(
+                        pluginEnchantments,
+                        eventType,
+                        p
+                );
 
-        SchedulerUtils.runForEntity(Disenchantment.plugin, p, () -> {
-            int refreshedCost = AnvilCostUtils.countAnvilCost(pluginEnchantments, eventType, p);
-            applyDisplayedCost(e.getInventory(), e.getView(), p, eventType, refreshedCost);
-            p.updateInventory();
-        });
+        applyDisplayedCost(
+                e.getInventory(),
+                e.getView(),
+                p,
+                eventType,
+                anvilCost
+        );
+
+        SchedulerUtils.runForEntity(
+                Disenchantment.plugin,
+                p,
+                () -> {
+
+                    int refreshedCost =
+                            AnvilCostUtils.countAnvilCost(
+                                    pluginEnchantments,
+                                    eventType,
+                                    p
+                            );
+
+                    applyDisplayedCost(
+                            e.getInventory(),
+                            e.getView(),
+                            p,
+                            eventType,
+                            refreshedCost
+                    );
+
+                    p.updateInventory();
+                }
+        );
     }
 
     // ----------------------------------------------------------------------------------------------------
     // "Too Expensive!" bypass
 
     // ponytail: ConcurrentHashMap for Folia region-thread safety
-    private static final Map<UUID, Integer> bypassCostCache = new ConcurrentHashMap<>();
+    private static final Map<UUID, Integer> bypassCostCache =
+            new ConcurrentHashMap<>();
 
-    private static boolean isBypassEnabled(AnvilEventType eventType) {
+    private static boolean isBypassEnabled(
+            AnvilEventType eventType) {
+
         return eventType == AnvilEventType.DISENCHANTMENT
-                ? Config.Disenchantment.Anvil.isBypassTooExpensiveEnabled()
-                : Config.Shatterment.Anvil.isBypassTooExpensiveEnabled();
+                ? Config.Disenchantment.Anvil
+                        .isBypassTooExpensiveEnabled()
+                : Config.Shatterment.Anvil
+                        .isBypassTooExpensiveEnabled();
     }
 
-    // Vanilla blocks the anvil result slot ("Too Expensive!") at repair cost >= 40.
+    // Vanilla blocks the anvil result slot ("Too Expensive!")
+    // at repair cost >= 40.
     private static final int VANILLA_TOO_EXPENSIVE_THRESHOLD = 40;
+
     private static final int BYPASS_DISPLAYED_COST = 1;
 
-    private static void applyDisplayedCost(AnvilInventory anvilInventory, org.bukkit.inventory.InventoryView inventoryView, Player p, AnvilEventType eventType, int realCost) {
-        if (isBypassEnabled(eventType) && realCost >= VANILLA_TOO_EXPENSIVE_THRESHOLD) {
-            bypassCostCache.put(p.getUniqueId(), realCost);
-            AnvilCostUtils.setAnvilRepairCostBypass(anvilInventory, inventoryView, BYPASS_DISPLAYED_COST);
+    private static void applyDisplayedCost(
+            AnvilInventory anvilInventory,
+            org.bukkit.inventory.InventoryView inventoryView,
+            Player p,
+            AnvilEventType eventType,
+            int realCost) {
+
+        if (isBypassEnabled(eventType)
+                && realCost >= VANILLA_TOO_EXPENSIVE_THRESHOLD) {
+
+            bypassCostCache.put(
+                    p.getUniqueId(),
+                    realCost
+            );
+
+            AnvilCostUtils.setAnvilRepairCostBypass(
+                    anvilInventory,
+                    inventoryView,
+                    BYPASS_DISPLAYED_COST
+            );
+
         } else {
-            bypassCostCache.remove(p.getUniqueId());
-            AnvilCostUtils.setAnvilRepairCost(anvilInventory, inventoryView, realCost);
+
+            bypassCostCache.remove(
+                    p.getUniqueId()
+            );
+
+            AnvilCostUtils.setAnvilRepairCost(
+                    anvilInventory,
+                    inventoryView,
+                    realCost
+            );
         }
     }
 
     /**
-     * Returns the cached real cost for {@code p} if a "Too Expensive!" bypass is active,
-     * otherwise {@code displayedCost} unchanged. Does not clear the cache — call
-     * {@link #clearBypassCost(Player)} once the operation actually completes.
+     * Returns the cached real cost for {@code p} if a "Too Expensive!" bypass
+     * is active, otherwise {@code displayedCost} unchanged.
+     * Does not clear the cache — call {@link #clearBypassCost(Player)} once
+     * the operation actually completes.
      */
-    public static int peekBypassCost(Player p, int displayedCost) {
-        Integer cached = bypassCostCache.get(p.getUniqueId());
-        return cached != null ? cached : displayedCost;
+    public static int peekBypassCost(
+            Player p,
+            int displayedCost) {
+
+        Integer cached =
+                bypassCostCache.get(
+                        p.getUniqueId()
+                );
+
+        return cached != null
+                ? cached
+                : displayedCost;
     }
 
     /**
-     * Clears the cached bypass cost for {@code p}, e.g. after the anvil result has been
-     * collected and the real XP cost charged.
+     * Clears the cached bypass cost for {@code p}, e.g. after the anvil result
+     * has been collected and the real XP cost charged.
      */
     public static void clearBypassCost(Player p) {
-        bypassCostCache.remove(p.getUniqueId());
+        bypassCostCache.remove(
+                p.getUniqueId()
+        );
     }
 
     // ----------------------------------------------------------------------------------------------------
@@ -416,19 +648,45 @@ public final class AnvilEventGuards {
 
     /**
      * Schedules a 2-tick deferred reduction/removal of the item in anvil slot 1.
-     * The delay is required because EnchantsSquared replaces slot 1 with null after 1 tick.
+     * The delay is required because EnchantsSquared replaces slot 1 with null
+     * after 1 tick.
      */
-    public static void scheduleSecondItemRemoval(Player p, AnvilInventory anvilInventory, ItemStack secondItem) {
-        ItemStack finalSecondItem = secondItem.clone();
-        // Schedule task to run 2 ticks after the event
-        // It is because of EnchantsSquared (they replace second slot to null after 1 tick)
-        SchedulerUtils.runForEntityLater(Disenchantment.plugin, p, () -> {
-            if (finalSecondItem.getAmount() > 1) {
-                finalSecondItem.setAmount(finalSecondItem.getAmount() - 1);
-                anvilInventory.setItem(1, finalSecondItem);
-            } else {
-                anvilInventory.setItem(1, null);
-            }
-        }, 2L);
+    public static void scheduleSecondItemRemoval(
+            Player p,
+            AnvilInventory anvilInventory,
+            ItemStack secondItem) {
+
+        ItemStack finalSecondItem =
+                secondItem.clone();
+
+        // Schedule task to run 2 ticks after the event.
+        // It is because of EnchantsSquared (they replace second slot to null
+        // after 1 tick).
+        SchedulerUtils.runForEntityLater(
+                Disenchantment.plugin,
+                p,
+                () -> {
+
+                    if (finalSecondItem.getAmount() > 1) {
+
+                        finalSecondItem.setAmount(
+                                finalSecondItem.getAmount() - 1
+                        );
+
+                        anvilInventory.setItem(
+                                1,
+                                finalSecondItem
+                        );
+
+                    } else {
+
+                        anvilInventory.setItem(
+                                1,
+                                null
+                        );
+                    }
+                },
+                2L
+        );
     }
 }

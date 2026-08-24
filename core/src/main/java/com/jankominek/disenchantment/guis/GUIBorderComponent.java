@@ -1,6 +1,6 @@
 package com.jankominek.disenchantment.guis;
 
-import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.bukkit.Material;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
@@ -22,7 +22,10 @@ public class GUIBorderComponent {
      * @return the border {@link ItemStack}
      */
     public static ItemStack borderItem() {
-        return new ItemBuilder(Material.GRAY_STAINED_GLASS_PANE).setDisplayName(" ").addAllFlags().build();
+        return new ItemBuilder(Material.GRAY_STAINED_GLASS_PANE)
+                .setDisplayName(" ")
+                .addAllFlags()
+                .build();
     }
 
     /**
@@ -85,7 +88,9 @@ public class GUIBorderComponent {
         border = (GUIItem[]) ArrayUtils.add(border, border(17));
         border = (GUIItem[]) ArrayUtils.addAll(border, rowBorder(18, 26));
 
-        border = Stream.of(border).filter(item -> !ArrayUtils.contains(remove, item.getSlot())).toArray(GUIItem[]::new);
+        border = Stream.of(border)
+                .filter(item -> !ArrayUtils.contains(remove, item.getSlot()))
+                .toArray(GUIItem[]::new);
 
         return border;
     }
@@ -113,7 +118,9 @@ public class GUIBorderComponent {
         border = (GUIItem[]) ArrayUtils.add(border, border(26));
         border = (GUIItem[]) ArrayUtils.addAll(border, rowBorder(27, 35));
 
-        border = Stream.of(border).filter(item -> !ArrayUtils.contains(remove, item.getSlot())).toArray(GUIItem[]::new);
+        border = Stream.of(border)
+                .filter(item -> !ArrayUtils.contains(remove, item.getSlot()))
+                .toArray(GUIItem[]::new);
 
         return border;
     }
@@ -143,7 +150,9 @@ public class GUIBorderComponent {
         border = (GUIItem[]) ArrayUtils.add(border, border(35));
         border = (GUIItem[]) ArrayUtils.addAll(border, rowBorder(36, 44));
 
-        border = Stream.of(border).filter(item -> !ArrayUtils.contains(remove, item.getSlot())).toArray(GUIItem[]::new);
+        border = Stream.of(border)
+                .filter(item -> !ArrayUtils.contains(remove, item.getSlot()))
+                .toArray(GUIItem[]::new);
 
         return border;
     }
@@ -175,7 +184,9 @@ public class GUIBorderComponent {
         border = (GUIItem[]) ArrayUtils.add(border, border(44));
         border = (GUIItem[]) ArrayUtils.addAll(border, rowBorder(45, 53));
 
-        border = Stream.of(border).filter(item -> !ArrayUtils.contains(remove, item.getSlot())).toArray(GUIItem[]::new);
+        border = Stream.of(border)
+                .filter(item -> !ArrayUtils.contains(remove, item.getSlot()))
+                .toArray(GUIItem[]::new);
 
         return border;
     }

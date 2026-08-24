@@ -2,17 +2,20 @@
 <project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    
     <modelVersion>4.0.0</modelVersion>
-
+    
     <artifactId>disenchantment-v1_21_R5</artifactId>
-
+    
     <parent>
         <groupId>com.jankominek</groupId>
         <artifactId>disenchantment-parent</artifactId>
         <version>${revision}</version>
     </parent>
-
+    
     <dependencies>
+        
+        <!-- Spigot 1.21.8 API/NMS -->
         <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot</artifactId>
@@ -20,12 +23,14 @@
             <scope>provided</scope>
             <classifier>remapped-mojang</classifier>
         </dependency>
+        
+        <!-- Core plugin -->
         <dependency>
             <groupId>com.jankominek</groupId>
             <artifactId>disenchantment-core</artifactId>
             <version>${revision}</version>
         </dependency>
-
+        
         <dependency>
             <groupId>net.advancedplugins</groupId>
             <artifactId>ae</artifactId>
@@ -33,11 +38,13 @@
             <scope>system</scope>
             <systemPath>${pom.basedir}/libs/AdvancedEnchantments-9.21.1.jar</systemPath>
         </dependency>
+        
         <dependency>
             <groupId>com.willfp</groupId>
             <artifactId>eco</artifactId>
             <version>6.77.5</version>
         </dependency>
+        
         <dependency>
             <groupId>me.athlaeos</groupId>
             <artifactId>enchantssquared</artifactId>
@@ -45,6 +52,7 @@
             <scope>system</scope>
             <systemPath>${pom.basedir}/libs/EnchantsSquared-2.5.16.jar</systemPath>
         </dependency>
+        
         <dependency>
             <groupId>su.nightexpress</groupId>
             <artifactId>excellentenchants</artifactId>
@@ -52,6 +60,7 @@
             <scope>system</scope>
             <systemPath>${pom.basedir}/libs/ExcellentEnchants-5.4.3.jar</systemPath>
         </dependency>
+        
         <dependency>
             <groupId>me.sciguymjm</groupId>
             <artifactId>uberenchant</artifactId>
@@ -59,6 +68,7 @@
             <scope>system</scope>
             <systemPath>${pom.basedir}/libs/UberEnchant-8.11.7.jar</systemPath>
         </dependency>
+        
         <dependency>
             <groupId>zedly.zenchantments</groupId>
             <artifactId>zenchantments</artifactId>
@@ -66,6 +76,7 @@
             <scope>system</scope>
             <systemPath>${pom.basedir}/libs/zenchantments-1.21.5.1.jar</systemPath>
         </dependency>
+        
         <dependency>
             <groupId>org.oddlama.vane</groupId>
             <artifactId>vane</artifactId>
@@ -73,17 +84,20 @@
             <scope>system</scope>
             <systemPath>${pom.basedir}/libs/vane-core-1.19.0.jar</systemPath>
         </dependency>
+        
     </dependencies>
-
+    
     <repositories>
         <repository>
             <id>auxilor-repo</id>
             <url>https://repo.auxilor.io/repository/maven-public/</url>
         </repository>
     </repositories>
-
+    
     <build>
         <plugins>
+            
+            <!-- Java 21 -->
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.15.0</version>
@@ -92,11 +106,56 @@
                     <target>21</target>
                 </configuration>
             </plugin>
+            
+            <!-- Build final plugin JAR containing core + version module -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        
+                        <configuration>
+                            
+                            <!-- Replace the normal JAR with the final plugin JAR -->
+                            <shadedArtifactAttached>false</shadedArtifactAttached>
+                            
+                            <!-- Do not generate dependency-reduced-pom.xml -->
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            
+                            <!-- Keep plugin.yml from core -->
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                                    <resource>plugin.yml</resource>
+                                </transformer>
+                                
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                            
+                            <!-- Do not include Spigot/Paper itself -->
+                            <artifactSet>
+                                <excludes>
+                                    <exclude>org.spigotmc:spigot</exclude>
+                                    <exclude>org.spigotmc:spigot-api</exclude>
+                                    <exclude>org.spigotmc:minecraft-server</exclude>
+                                </excludes>
+                            </artifactSet>
+                            
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            
         </plugins>
     </build>
-
+    
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
     </properties>
+    
 </project>
